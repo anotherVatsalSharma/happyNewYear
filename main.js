@@ -1,196 +1,231 @@
-window.requestAnimFrame = ( function() {
-	return window.requestAnimationFrame ||
-				window.webkitRequestAnimationFrame ||
-				window.mozRequestAnimationFrame ||
-				function( callback ) {
-					window.setTimeout( callback, 1000 / 60 );
-				};
-})();
+var screenWidth = window.innerWidth;
+var screenHeight = window.innerHeight;
+var controller;
 
-var canvas = document.getElementById( 'canvas' ),
-		ctx = canvas.getContext( '2d' ),
-		cw = window.innerWidth,
-		ch = window.innerHeight,
-		fireworks = [],
-		particles = [],
-		hue = 120,
-		limiterTotal = 5,
-		limiterTick = 0,
-		timerTotal = 5,
-		timerTick = 0,
-		mousedown = false,
-		mx,
-		my;
-		
-canvas.width = cw;
-canvas.height = ch;
+var minVx = -10;
+var deltaVx = 20;
+var minVy = 25
+var deltaVy = 15;
+var minParticleV = 5;
+var deltaParticleV = 5;
 
-function random( min, max ) {
-	return Math.random() * ( max - min ) + min;
+var gravity = 1;
+
+var explosionRadius = 500;
+var bombRadius = 3;
+var explodingDuration = 10;
+var explosionDividerFactor = 5; // I couldn't find a better name. Got any?
+
+var nBombs = 1; // initial
+var percentChanceNewBomb = 2;
+
+function Color(min) {
+	this.style = 'hsla(' + (Math.random() * 255) + ', 100%, 50%, 1.0)';
+};
+
+function colorValue(min) {
+	return Math.floor(Math.random() * (255 - min) + min);
 }
 
-function calculateDistance( p1x, p1y, p2x, p2y ) {
-	var xDistance = p1x - p2x,
-			yDistance = p1y - p2y;
-	return Math.sqrt( Math.pow( xDistance, 2 ) + Math.pow( yDistance, 2 ) );
+function createColorStyle(r, g, b) {
+	return 'rgba(' + r + ',' + g + ',' + b + ', 0.8)';
 }
 
-function Firework( sx, sy, tx, ty ) {
-	this.x = sx;
-	this.y = sy;
-	this.sx = sx;
-	this.sy = sy;
-	this.tx = tx;
-	this.ty = ty;
-	this.distanceToTarget = calculateDistance( sx, sy, tx, ty );
-	this.distanceTraveled = 0;
-	this.coordinates = [];
-	this.coordinateCount = 3;
-	while( this.coordinateCount-- ) {
-		this.coordinates.push( [ this.x, this.y ] );
-	}
-	this.angle = Math.atan2( ty - sy, tx - sx );
-	this.speed = 2;
-	this.acceleration = 1.05;
-	this.brightness = random( 50, 70 );
-	this.targetRadius = 1;
-}
+// A Bomb. Or firework.
+function Bomb() {
+	var self = this;
+	self.radius = bombRadius;
+	self.previousRadius = bombRadius;
+	self.explodingDuration = explodingDuration;
+	self.hasExploded = false;
+	self.alive = true;
+	self.color = new Color(160);
 
-Firework.prototype.update = function( index ) {
-	this.coordinates.pop();
-	this.coordinates.unshift( [ this.x, this.y ] );
-	if( this.targetRadius < 8 ) {
-		this.targetRadius += 0.3;
-	} else {
-		this.targetRadius = 1;
-	}
-	this.speed *= this.acceleration;
-	
-	var vx = Math.cos( this.angle ) * this.speed,
-			vy = Math.sin( this.angle ) * this.speed;
-	this.distanceTraveled = calculateDistance( this.sx, this.sy, this.x + vx, this.y + vy );
-	
-	if( this.distanceTraveled >= this.distanceToTarget ) {
-		createParticles( this.tx, this.ty );
-		fireworks.splice( index, 1 );
-	} else {
-		this.x += vx;
-		this.y += vy;
-	}
-}
+	self.px = (window.innerWidth / 4) + (Math.random() * window.innerWidth / 2);
+	self.py = window.innerHeight;
+	self.vx = minVx + Math.random() * deltaVx;
+	self.vy = (minVy + Math.random() * deltaVy) * -1;
 
-Firework.prototype.draw = function() {
-	ctx.beginPath();
-	ctx.moveTo( this.coordinates[ this.coordinates.length - 1][ 0 ], this.coordinates[ this.coordinates.length - 1][ 1 ] );
-	ctx.lineTo( this.x, this.y );
-	ctx.strokeStyle = 'hsl(' + hue + ', 100%, ' + this.brightness + '%)';
-	ctx.stroke();
-	
-	ctx.beginPath();
-	ctx.arc( this.tx, this.ty, this.targetRadius, 0, Math.PI * 2 );
-	ctx.stroke();
-}
-
-function Particle( x, y ) {
-	this.x = x;
-	this.y = y;
-	this.coordinates = [];
-	this.coordinateCount = 5;
-	while( this.coordinateCount-- ) {
-		this.coordinates.push( [ this.x, this.y ] );
-	}
-	this.angle = random( 0, Math.PI * 2 );
-	this.speed = random( 1, 10 );
-	this.friction = 0.95;
-	this.gravity = 1;
-	this.hue = random( hue - 50, hue + 50 );
-	this.brightness = random( 50, 80 );
-	this.alpha = 1;
-	this.decay = random( 0.015, 0.03 );
-}
-
-Particle.prototype.update = function( index ) {
-	this.coordinates.pop();
-	this.coordinates.unshift( [ this.x, this.y ] );
-	this.speed *= this.friction;
-	this.x += Math.cos( this.angle ) * this.speed;
-	this.y += Math.sin( this.angle ) * this.speed + this.gravity;
-	this.alpha -= this.decay;
-	
-	if( this.alpha <= this.decay ) {
-		particles.splice( index, 1 );
-	}
-}
-
-Particle.prototype.draw = function() {
-	ctx. beginPath();
-	ctx.moveTo( this.coordinates[ this.coordinates.length - 1 ][ 0 ], this.coordinates[ this.coordinates.length - 1 ][ 1 ] );
-	ctx.lineTo( this.x, this.y );
-	ctx.strokeStyle = 'hsla(' + this.hue + ', 100%, ' + this.brightness + '%, ' + this.alpha + ')';
-	ctx.stroke();
-}
-
-function createParticles( x, y ) {
-	var particleCount = 30;
-	while( particleCount-- ) {
-		particles.push( new Particle( x, y ) );
-	}
-}
-
-function loop() {
-	requestAnimFrame( loop );
-	
-  hue= random(0, 360 );
-	
-	ctx.globalCompositeOperation = 'destination-out';
-	ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-	ctx.fillRect( 0, 0, cw, ch );
-	ctx.globalCompositeOperation = 'lighter';
-	
-	var i = fireworks.length;
-	while( i-- ) {
-		fireworks[ i ].draw();
-		fireworks[ i ].update( i );
-	}
-	
-	var i = particles.length;
-	while( i-- ) {
-		particles[ i ].draw();
-		particles[ i ].update( i );
-	}
-	
-	if( timerTick >= timerTotal ) {
-		if( !mousedown ) {
-			fireworks.push( new Firework( cw / 2, ch, random( 0, cw ), random( 0, ch / 2 ) ) );
-			timerTick = 0;
+	self.duration = 
+		self.update = function(particlesVector) {
+		if (self.hasExploded) {
+			var deltaRadius = explosionRadius - self.radius;
+			self.previousRadius = self.radius;
+			self.radius += deltaRadius / explosionDividerFactor;
+			self.explodingDuration--;
+			if (self.explodingDuration == 0) {
+				self.alive = false;
+			}
+		} else {
+			self.vx += 0;
+			self.vy += gravity;
+			if (self.vy >= 0) { // invertion point
+				self.explode(particlesVector);
+			}
+			self.px += self.vx;
+			self.py += self.vy;
 		}
-	} else {
-		timerTick++;
+	};
+
+	self.draw = function(ctx) {
+		ctx.beginPath();
+		ctx.arc(self.px, self.py, self.previousRadius, 0, Math.PI * 2, false);
+		if (self.hasExploded) {
+		} else {
+			ctx.fillStyle = self.color.style;
+			ctx.lineWidth = 1;
+			ctx.fill();
+		}
+	};
+
+	self.explode = function(particlesVector) {
+		self.hasExploded = true;
+		var e = 3 + Math.floor(Math.random() * 3);
+		for(var j = 0; j < e; j++) {
+			var n = 10 + Math.floor(Math.random() * 21); // 10 - 30
+			var speed = minParticleV + Math.random() * deltaParticleV;
+			var deltaAngle = 2 * Math.PI / n;
+			var initialAngle = Math.random() * deltaAngle;
+			for(var i = 0; i < n; i++) {
+				particlesVector.push(new Particle(self,  i * deltaAngle + initialAngle, speed));
+			}
+		}
+	};
+
+}
+
+function Particle(parent, angle, speed) {
+	var self = this;
+	self.px = parent.px;
+	self.py = parent.py;
+	self.vx = Math.cos(angle) * speed;
+	self.vy = Math.sin(angle) * speed;
+	self.color = parent.color;
+	self.duration = 40 + Math.floor(Math.random() * 20);
+	self.alive = true;
+
+	self.update = function(){
+		self.vx += 0;
+		self.vy += gravity / 10;
+
+		self.px += self.vx;
+		self.py += self.vy;
+		self.radius = 3;
+
+		self.duration--;
+		if(self.duration <= 0){
+			self.alive = false;
+		}
+	};
+
+	self.draw = function(ctx) {
+		ctx.beginPath();
+		ctx.arc(self.px, self.py, self.radius, 0, Math.PI * 2, false);
+		ctx.fillStyle = self.color.style;
+		ctx.lineWidth = 1;
+		ctx.fill();
+	};
+}
+
+function Controller() {
+	var self = this;
+	self.canvas = document.getElementById("screen");
+	self.canvas.width = screenWidth;
+	self.canvas.height = screenHeight;
+	self.ctx = self.canvas.getContext('2d');
+	
+	function setSpeedParams() {
+		var heightReached = 0;
+		var vy = 0;
+		while (heightReached < screenHeight && vy >= 0){
+			vy += gravity;
+			heightReached += vy;
+		}
+		minVy = vy / 2;
+		deltaVy = vy - minVy;
+		vx = (1 / 4) * screenWidth / (vy / 2);
+		minVx = -vx;
+		deltaVx = 2*vx;
+	};
+	
+	self.resize = function() {
+		screenWidth = window.innerWidth;
+		screenHeight = window.innerHeight;
+		self.canvas.width = screenWidth;
+		self.canvas.height = screenHeight;
+		setSpeedParams();
+	};
+	
+	self.resize();
+	window.onresize = self.resize;
+	self.init = function(){
+		self.readyBombs = [];
+		self.explodedBombs = [];
+		self.particles = [];
+		for(var i = 0; i < nBombs; i++){
+			self.readyBombs.push(new Bomb());
+		}
 	}
 	
-	if( limiterTick >= limiterTotal ) {
-		if( mousedown ) {
-			fireworks.push( new Firework( cw / 2, ch, mx, my ) );
-			limiterTick = 0;
+	self.update = function(){
+		var aliveBombs = [];
+		while(self.explodedBombs.length > 0){
+			var bomb = self.explodedBombs.shift();
+			bomb.update();
+			if (bomb.alive) {
+				aliveBombs.push(bomb);
+			}
 		}
-	} else {
-		limiterTick++;
+		self.explodedBombs = aliveBombs;
+		var notExplodedBombs = [];
+		while (self.readyBombs.length > 0) {
+			var bomb = self.readyBombs.shift();
+			bomb.update(self.particles);
+			if (bomb.hasExploded){
+				self.explodedBombs.push(bomb);
+			} else {
+				notExplodedBombs.push(bomb);
+			}
+		}
+		self.readyBombs = notExplodedBombs;
+		var aliveParticles = [];
+		while (self.particles.length > 0) {
+			var particle = self.particles.shift();
+			particle.update();
+			if (particle.alive){
+				aliveParticles.push(particle);
+			}
+		}
+		self.particles = aliveParticles;
+	}
+
+	self.draw = function() {
+		self.ctx.beginPath();
+		self.ctx.fillStyle='rgba(0, 0, 0, 0.1)'; // Ghostly effect
+		self.ctx.fillRect(0, 0, self.canvas.width, self.canvas.height);
+		self.ctx.globalCompositeOperation = 'lighter';
+		for (var i = 0; i < self.readyBombs.length; i++){
+			self.readyBombs[i].draw(self.ctx);
+		}
+		for (var i = 0; i < self.explodedBombs.length; i++){
+			self.explodedBombs[i].draw(self.ctx);
+		}
+		for (var i = 0; i < self.particles.length; i++){
+			self.particles[i].draw(self.ctx);
+		}
+		self.ctx.globalCompositeOperation = 'source-over';
+	}
+	
+	self.animation = function() {
+		self.update();
+		self.draw();
+		if (Math.random() * 100 < percentChanceNewBomb) {
+			self.readyBombs.push(new Bomb());
+		}
+		requestAnimationFrame(self.animation);
 	}
 }
 
-canvas.addEventListener( 'mousemove', function( e ) {
-	mx = e.pageX - canvas.offsetLeft;
-	my = e.pageY - canvas.offsetTop;
-});
-
-canvas.addEventListener( 'mousedown', function( e ) {
-	e.preventDefault();
-	mousedown = true;
-});
-
-canvas.addEventListener( 'mouseup', function( e ) {
-	e.preventDefault();
-	mousedown = false;
-});
-
-window.onload = loop;
+var controller = new Controller();
+controller.init();
+requestAnimationFrame(controller.animation);
